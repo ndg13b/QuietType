@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Node / web -------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+
+# Build and test output (the site itself has no build step)
+_site/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local environment
+.env
+.env.local
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
