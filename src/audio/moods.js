@@ -1,12 +1,28 @@
 /**
  * Mood presets.
  *
- * A mood is pure data: which notes are available, how each of the four sound
- * layers is voiced, and the colours the page and canvas borrow. The engine
- * and the visual field read these; swapping a mood never changes the
- * keystroke-to-sound logic, only its palette in both senses of the word.
+ * Levels here were set by measuring the rendered output, not by arithmetic --
+ * see docs/architecture.md. Two things make the nominal numbers misleading:
+ * an envelope's shape decides how much of a voice's nominal level survives as
+ * heard loudness, and a *continuous* source (the drone) collects far more
+ * reverb energy than a transient one (a pluck). That is why the drones sit so
+ * much lower than everything else: without it, resting on the page is louder
+ * than working on it.
  *
- * `synth` blocks are passed straight to Tone.js constructors.
+ * A mood is pure data: which notes are available, how each of the four sound
+ * layers is voiced, how its ripples decay, and the colours the page and canvas
+ * borrow. The engine and the visual field read these; swapping a mood never
+ * changes the keystroke-to-sound logic, only its palette in both senses of the
+ * word.
+ *
+ * `oscillator`/`envelope`/`filter` blocks are passed straight to Tone.js.
+ *
+ * On levels: every voice is quiet on purpose. Fast typing can leave two dozen
+ * plucks ringing at once on top of a sustaining pad, a drone and a noise bed,
+ * and it is their *sum* that has to stay clear of the limiter. Anything much
+ * hotter than these numbers and the master chain starts audibly working, which
+ * is heard as gritty pumping rather than as loudness. `trim` is the one knob
+ * for balancing a whole mood against the others.
  */
 import { SCALES, noteToMidi } from './scales.js';
 
@@ -17,6 +33,7 @@ export const MOODS = {
     name: 'Calm',
     tagline: 'Ambient',
     description: 'Pentatonic, soft pads and glassy plucks over a cool palette.',
+    trim: 6,
     music: {
       root: noteToMidi('D3'),
       scale: SCALES.majorPentatonic,
@@ -24,36 +41,41 @@ export const MOODS = {
       range: [5, 17],
       padShape: [0, 2, 4, 6],
       padBase: -5,
-      /** Rough note length in seconds for a single pluck. */
-      pluckDecay: 1.4,
+      /** Base note length in seconds before the release takes over. */
+      pluckDecay: 1.5,
     },
     pluck: {
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.004, decay: 0.42, sustain: 0.015, release: 1.5 },
-      filter: { type: 'lowpass', frequency: 4200, Q: 0.7 },
-      volume: -13,
+      // A gentle attack lets each note bloom instead of clicking, and the long
+      // release is what carries it into the ripple send.
+      envelope: { attack: 0.015, decay: 0.9, sustain: 0.12, release: 2.2 },
+      filter: { type: 'lowpass', frequency: 3600, Q: 0.7 },
+      volume: -21,
     },
+    /** An octave-up partner note, for glitter in the tail. */
+    shimmer: { chance: 0.4, delay: 0.13, level: 0.34 },
     pad: {
       oscillator: { type: 'fatsine', count: 3, spread: 18 },
-      envelope: { attack: 3.4, decay: 2, sustain: 0.85, release: 7 },
+      envelope: { attack: 3.4, decay: 2, sustain: 0.8, release: 5 },
       filter: { type: 'lowpass', frequency: 1200, Q: 0.4 },
-      volume: -21,
+      volume: -25,
     },
     texture: {
       noise: 'pink',
       filter: { type: 'bandpass', frequency: 900, Q: 2.2 },
       sweep: { min: 420, max: 2400, rate: 0.07 },
-      volume: -26,
+      volume: -30,
     },
     breath: {
       oscillator: { type: 'sine' },
       /** Semitones from the root; the slow tone that waits for you. */
       semitones: -12,
       sweep: { min: 220, max: 760, rate: 0.035 },
-      volume: -20,
+      volume: -43,
     },
-    reverb: { decay: 8, wet: 0.44 },
-    delay: { delayTime: 0.36, feedback: 0.28, wet: 0.18 },
+    /** Echoes thrown off by each keystroke: the audible ripple. */
+    ripple: { delayTime: 0.34, feedback: 0.48, send: 0.52 },
+    reverb: { decay: 9, wet: 0.5 },
     palette: {
       scheme: 'dark',
       surface: '#08141b',
@@ -71,28 +93,30 @@ export const MOODS = {
     name: 'Bright',
     tagline: 'Playful',
     description: 'Major scale, bell-like plucks and warm daylight colours.',
+    trim: 2,
     music: {
       root: noteToMidi('G3'),
       scale: SCALES.major,
       range: [7, 21],
       padShape: [0, 2, 4],
       padBase: -7,
-      pluckDecay: 1.1,
+      pluckDecay: 1.3,
     },
     pluck: {
       type: 'fm',
       harmonicity: 3.01,
-      modulationIndex: 7.5,
+      modulationIndex: 6.5,
       oscillator: { type: 'sine' },
-      envelope: { attack: 0.002, decay: 0.55, sustain: 0, release: 0.9 },
+      envelope: { attack: 0.006, decay: 1, sustain: 0.06, release: 1.9 },
       modulation: { type: 'sine' },
-      modulationEnvelope: { attack: 0.002, decay: 0.22, sustain: 0, release: 0.2 },
-      filter: { type: 'lowpass', frequency: 6500, Q: 0.5 },
-      volume: -17,
+      modulationEnvelope: { attack: 0.004, decay: 0.3, sustain: 0, release: 0.4 },
+      filter: { type: 'lowpass', frequency: 5200, Q: 0.5 },
+      volume: -10,
     },
+    shimmer: { chance: 0.45, delay: 0.11, level: 0.32 },
     pad: {
       oscillator: { type: 'fattriangle', count: 3, spread: 24 },
-      envelope: { attack: 2.4, decay: 1.6, sustain: 0.8, release: 5 },
+      envelope: { attack: 2.4, decay: 1.6, sustain: 0.72, release: 4 },
       filter: { type: 'lowpass', frequency: 1900, Q: 0.5 },
       volume: -23,
     },
@@ -100,16 +124,16 @@ export const MOODS = {
       noise: 'white',
       filter: { type: 'bandpass', frequency: 1600, Q: 3 },
       sweep: { min: 800, max: 4200, rate: 0.11 },
-      volume: -30,
+      volume: -33,
     },
     breath: {
       oscillator: { type: 'triangle' },
       semitones: -12,
       sweep: { min: 300, max: 1100, rate: 0.045 },
-      volume: -22,
+      volume: -36,
     },
-    reverb: { decay: 4.2, wet: 0.3 },
-    delay: { delayTime: 0.28, feedback: 0.22, wet: 0.14 },
+    ripple: { delayTime: 0.27, feedback: 0.44, send: 0.48 },
+    reverb: { decay: 6, wet: 0.44 },
     palette: {
       scheme: 'light',
       surface: '#f7f0e2',
@@ -127,42 +151,54 @@ export const MOODS = {
     name: 'Moody',
     tagline: 'Introspective',
     description: 'Minor scale, filtered and slightly detuned, in low light.',
+    // Sawtooths and a low register carry far more energy than the other two
+    // moods for the same nominal level, so the whole mood sits lower.
+    trim: -1,
     music: {
       root: noteToMidi('A2'),
       scale: SCALES.aeolian,
-      range: [7, 20],
-      padShape: [0, 2, 4, 6],
+      range: [9, 21],
+      // A plain triad rather than a seventh: stacked sevenths in a low
+      // register, overlapping as chords change, turn to mud.
+      padShape: [0, 2, 4],
       padBase: 0,
-      pluckDecay: 1.8,
+      pluckDecay: 1.6,
     },
     pluck: {
-      oscillator: { type: 'fatsawtooth', count: 2, spread: 16 },
-      envelope: { attack: 0.008, decay: 0.75, sustain: 0.03, release: 2.1 },
-      filter: { type: 'lowpass', frequency: 1500, Q: 1.6 },
-      detune: -6,
-      volume: -18,
+      // One detuned pair, not two: `count: 2` already gives the beating that
+      // makes this mood feel unsettled, and every extra oscillator is another
+      // voice summing into the master chain.
+      oscillator: { type: 'fatsawtooth', count: 2, spread: 14 },
+      envelope: { attack: 0.02, decay: 1, sustain: 0.05, release: 2.4 },
+      filter: { type: 'lowpass', frequency: 1300, Q: 1.1 },
+      detune: -5,
+      volume: -10,
     },
+    shimmer: { chance: 0.35, delay: 0.16, level: 0.3 },
     pad: {
-      oscillator: { type: 'fatsine', count: 4, spread: 32 },
-      envelope: { attack: 4.2, decay: 2.5, sustain: 0.9, release: 9 },
+      oscillator: { type: 'fatsine', count: 2, spread: 26 },
+      envelope: { attack: 4.2, decay: 2.5, sustain: 0.78, release: 6 },
       filter: { type: 'lowpass', frequency: 780, Q: 0.8 },
-      detune: -8,
-      volume: -19,
+      detune: -6,
+      volume: -22,
     },
     texture: {
       noise: 'brown',
       filter: { type: 'bandpass', frequency: 520, Q: 1.8 },
       sweep: { min: 180, max: 1500, rate: 0.05 },
-      volume: -22,
+      volume: -29,
     },
     breath: {
       oscillator: { type: 'sine' },
-      semitones: 0,
+      // Was the root itself, which put the drone right in the middle of the
+      // filter's passband and made resting on this mood far louder than the
+      // others. An octave down sits under the music instead of on top of it.
+      semitones: -12,
       sweep: { min: 140, max: 520, rate: 0.028 },
-      volume: -17,
+      volume: -39,
     },
-    reverb: { decay: 11, wet: 0.5 },
-    delay: { delayTime: 0.48, feedback: 0.34, wet: 0.22 },
+    ripple: { delayTime: 0.44, feedback: 0.46, send: 0.52 },
+    reverb: { decay: 12, wet: 0.46 },
     palette: {
       scheme: 'dark',
       surface: '#0b0912',

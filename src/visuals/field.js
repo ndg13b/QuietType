@@ -112,16 +112,20 @@ export class VisualField {
     /* Growth is a fraction of the smaller viewport edge per second, so a
      * ripple covers the same proportion of any screen. Kept deliberately
      * modest: large slow rings read as background structure rather than as
-     * an answer to the key you just pressed. */
+     * an answer to the key you just pressed.
+     *
+     * Rings spread slowly and linger for a couple of seconds, which is roughly
+     * how long the note they belong to takes to decay through the ripple send.
+     * Seeing a ring vanish while you can still hear it reads as a glitch. */
     const shape = {
       // Enter leaves a wider, longer-lived mark than an ordinary letter.
-      accent: { radius: scale * 0.04, growth: 0.16, decay: 0.6, weight: 2.4 },
+      accent: { radius: scale * 0.04, growth: 0.08, decay: 0.32, weight: 2.4 },
       // Corrections contract instead of expanding: a visible small retreat.
-      correction: { radius: scale * 0.03, growth: -0.06, decay: 1.4, weight: 1.2 },
+      correction: { radius: scale * 0.03, growth: -0.05, decay: 0.9, weight: 1.2 },
       regular: {
         radius: scale * 0.012,
-        growth: lerp(0.1, 0.22, intensity),
-        decay: lerp(0.75, 1.15, intensity),
+        growth: lerp(0.05, 0.11, intensity),
+        decay: lerp(0.42, 0.62, intensity),
         weight: lerp(1, 1.8, intensity),
       },
     }[kind] ?? {};

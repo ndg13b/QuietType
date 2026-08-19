@@ -8,18 +8,62 @@
  *
  * Tone.js is injected rather than imported so the engine can be constructed
  * (and its non-audio bookkeeping exercised) without a Web Audio context.
+ *
+ * Signal flow:
+ *
+ *   pluck ─► filter ─► pluckGain ─┬──────────────────────────┐
+ *                                 └─► rippleSend ─► delay ─► │
+ *   pad   ─► filter ─► padGain ─────────────────────────────►│
+ *   texture ─► filter ─► textureGain ───────────────────────►├─► trim ─► reverb
+ *   breath ─► filter ─► breathGain ─────────────────────────►┘             │
+ *                                                                          ▼
+ *                       destination ◄─ master ◄─ limiter ◄─ glue compressor
+ *
+ * Two things about that chain are load-bearing:
+ *
+ * - The ripple send is tapped *after* the pluck layer gain, so the typing
+ *   state controls how much new energy enters the echoes while tails already
+ *   in flight are left to decay naturally.
+ * - The glue compressor exists so the limiter never has to do real work. A
+ *   brick wall catching two dozen overlapping voices is heard as gritty
+ *   pumping, not as loudness.
  */
 import { clamp, createRandom, mapRange } from '../util/math.js';
-import { chordNotes, degreeToNote, midiToNote } from './scales.js';
+import { chordNotes, degreeToMidi, degreeToNote, midiToNote } from './scales.js';
 import { LAYERS, rampFor, resolveMix } from './mix.js';
 import { MelodicWalk } from './melody.js';
 
-/** Never fire two plucks closer together than this (seconds). */
-const MIN_NOTE_GAP = 0.055;
-/** How long a pad chord is held before the next one is chosen (seconds). */
-const PAD_PERIOD = 9;
+/**
+ * Never fire two plucks closer together than this (seconds).
+ *
+ * This is a polyphony budget as much as a musical choice. A voice occupies a
+ * slot for its note length plus its release -- around 3.5 s with these presets
+ * -- so ~7.7 notes a second is what keeps the worst case under MAX_VOICES.
+ * Typing faster than this groups into bursts, which is what the brief asks for
+ * anyway; the perceived length of each note comes from the ripple send and the
+ * reverb, neither of which costs a voice.
+ */
+const MIN_NOTE_GAP = 0.13;
+
+/** Voice ceiling for the pluck layer. Above this Tone starts stealing notes. */
+const MAX_VOICES = 32;
+
+/** Beyond this typing intensity the shimmer partner is skipped, to stay inside
+ *  the voice budget exactly when the budget is tightest. */
+const SHIMMER_INTENSITY_CEILING = 0.75;
+
+/** Seconds between pad chord changes, and how much of that the chord is held.
+ *  Holding for less than the full period is what stops chords from stacking. */
+const PAD_PERIOD = 11;
+const PAD_HOLD = 0.7;
+
 /** Scale degrees the pad progression walks through, relative to `padBase`. */
 const PAD_PROGRESSION = [0, 3, -2, 4, 1, -3];
+
+/** Silent window used when swapping a mood's voices, so the cut is inaudible. */
+const SWAP_FADE = 0.25;
+
+const dbToGain = (db) => 10 ** (db / 20);
 
 export class AudioEngine {
   #Tone = null;
@@ -32,6 +76,8 @@ export class AudioEngine {
   #lastNoteAt = -Infinity;
   #nextPadAt = 0;
   #padStep = 0;
+  /** Guards against overlapping mood swaps. */
+  #swapToken = 0;
   #walk;
   #random;
 
@@ -70,17 +116,40 @@ export class AudioEngine {
     await Tone.start();
 
     const master = new Tone.Gain(this.#muted ? 0 : this.#volume).toDestination();
-    const limiter = new Tone.Limiter(-3).connect(master);
-    const reverb = new Tone.Reverb(this.#mood.reverb).connect(limiter);
-    const delay = new Tone.FeedbackDelay(this.#mood.delay).connect(reverb);
-    const bus = new Tone.Gain(1).connect(delay);
+    // -1 dBFS, and it should almost never engage: the compressor below has
+    // already taken the peaks off by the time anything reaches it.
+    const limiter = new Tone.Limiter(-1).connect(master);
+    const glue = new Tone.Compressor({
+      threshold: -20,
+      ratio: 2.5,
+      attack: 0.02,
+      // Slow enough not to pump on the low drone, which a limiter's 10 ms
+      // release very much does.
+      release: 0.28,
+      knee: 12,
+    }).connect(limiter);
+    const reverb = new Tone.Reverb(this.#mood.reverb).connect(glue);
+    const trim = new Tone.Gain(dbToGain(this.#mood.trim ?? 0)).connect(reverb);
+    const bus = new Tone.Gain(1).connect(trim);
 
     // Each layer gets its own gain so the mix can crossfade them independently.
     const gain = Object.fromEntries(
       LAYERS.map((layer) => [layer, new Tone.Gain(0).connect(bus)]),
     );
 
-    this.#nodes = { Tone, master, limiter, reverb, delay, bus, gain };
+    // The ripple: every pluck throws off a decaying series of echoes, which
+    // then wash into the reverb. This is where "longer and more ethereal"
+    // comes from -- lengthening the notes themselves would just burn voices.
+    const rippleDelay = new Tone.FeedbackDelay({
+      delayTime: this.#mood.ripple.delayTime,
+      feedback: this.#mood.ripple.feedback,
+      wet: 1,
+      maxDelay: 2,
+    }).connect(bus);
+    const rippleSend = new Tone.Gain(this.#mood.ripple.send).connect(rippleDelay);
+    gain.pluck.connect(rippleSend);
+
+    this.#nodes = { Tone, master, limiter, glue, reverb, trim, bus, gain, rippleDelay, rippleSend };
     this.#buildVoices(this.#mood);
 
     // Reverb renders its impulse response off-thread; awaiting keeps the first
@@ -95,19 +164,49 @@ export class AudioEngine {
     this.#nextPadAt = Tone.now() + 0.4;
   }
 
-  /** Tear down and rebuild the voices for a new mood, keeping the effects bus. */
+  /**
+   * Swap in another mood's voices and effect settings.
+   *
+   * Disposing a synth mid-note cuts its output dead, which clicks, so the bus
+   * is faded out first and everything is rebuilt inside that silent window.
+   */
   setMood(mood) {
     this.#mood = mood;
-    this.#walk = new MelodicWalk({ range: mood.music.range, seed: Math.floor(this.#random() * 1e9) });
+    this.#walk = new MelodicWalk({
+      range: mood.music.range,
+      seed: Math.floor(this.#random() * 1e9),
+    });
     if (!this.#started) return;
 
-    const { Tone, reverb, delay } = this.#nodes;
-    reverb.set(mood.reverb);
-    delay.set(mood.delay);
-    this.#disposeVoices();
-    this.#buildVoices(mood);
-    this.#padStep = 0;
-    this.#nextPadAt = Tone.now() + 0.2;
+    const { Tone, bus } = this.#nodes;
+    const token = ++this.#swapToken;
+    const retired = { voices: this.#nodes.voices, shapers: this.#nodes.shapers };
+
+    bus.gain.rampTo(0, SWAP_FADE);
+    setTimeout(() => {
+      // A newer swap started while this one was fading; it owns the graph now.
+      if (token !== this.#swapToken || !this.#nodes) return;
+
+      for (const node of [
+        ...Object.values(retired.voices ?? {}),
+        ...Object.values(retired.shapers ?? {}),
+      ]) {
+        node?.dispose?.();
+      }
+
+      this.#nodes.reverb.set(mood.reverb);
+      this.#nodes.trim.gain.value = dbToGain(mood.trim ?? 0);
+      this.#nodes.rippleDelay.set({
+        delayTime: mood.ripple.delayTime,
+        feedback: mood.ripple.feedback,
+      });
+      this.#nodes.rippleSend.gain.value = mood.ripple.send;
+
+      this.#buildVoices(mood);
+      this.#padStep = 0;
+      this.#nextPadAt = Tone.now() + 0.3;
+      bus.gain.rampTo(1, SWAP_FADE);
+    }, SWAP_FADE * 1000 + 40);
   }
 
   setVolume(value) {
@@ -129,13 +228,14 @@ export class AudioEngine {
   onKeystroke({ kind, snapshot }) {
     if (!this.#started || this.#muted) return;
     const { Tone, voices } = this.#nodes;
+    if (!voices) return; // mid mood-swap
     const now = Tone.now();
     if (now - this.#lastNoteAt < MIN_NOTE_GAP) return;
     this.#lastNoteAt = now;
 
     const { music } = this.#mood;
     const intensity = clamp(snapshot?.intensity ?? 0.4, 0, 1);
-    const velocity = clamp(0.24 + intensity * 0.45 + this.#random() * 0.12, 0.05, 0.95);
+    const velocity = clamp(0.2 + intensity * 0.4 + this.#random() * 0.1, 0.05, 0.8);
     const decay = music.pluckDecay;
 
     try {
@@ -145,21 +245,22 @@ export class AudioEngine {
         const degree = this.#walk.settle(this.#walk.degree - 1);
         voices.pluck.triggerAttackRelease(
           degreeToNote(music.root, music.scale, degree),
-          decay * 0.45,
+          decay * 0.4,
           now,
-          velocity * 0.5,
+          velocity * 0.45,
         );
         return;
       }
 
       if (kind === 'accent') {
-        // Enter ends a thought; answer it with a low root and fifth.
+        // Enter ends a thought; answer it with a low root and fifth. Seven
+        // semitones is in every scale we ship, so this stays consonant.
         this.#walk.settle();
         voices.pluck.triggerAttackRelease(
           [midiToNote(music.root - 12), midiToNote(music.root - 5)],
-          decay * 1.4,
+          decay * 1.2,
           now,
-          velocity * 0.7,
+          velocity * 0.6,
         );
         return;
       }
@@ -168,13 +269,24 @@ export class AudioEngine {
       const leapChance = mapRange(snapshot?.steadiness ?? 0.5, 1, 0, 0.05, 0.22);
       const degree = this.#walk.next({ leapChance });
       const note = degreeToNote(music.root, music.scale, degree);
-      const length = decay * (0.55 + this.#random() * 0.55);
+      const length = decay * (0.45 + this.#random() * 0.45);
       voices.pluck.triggerAttackRelease(note, length, now, velocity);
 
-      // Deep in a fast burst, let the occasional note ring as a pair.
-      if (intensity > 0.72 && this.#random() < 0.12) {
-        const partner = degreeToNote(music.root, music.scale, degree + 2);
-        voices.pluck.triggerAttackRelease(partner, length * 0.7, now + 0.09, velocity * 0.6);
+      // An octave up, quietly, so the tail glitters. Skipped in a fast burst:
+      // that is exactly when there is no voice budget to spare, and no room in
+      // the music for it either.
+      const shimmer = this.#mood.shimmer;
+      if (
+        shimmer &&
+        intensity < SHIMMER_INTENSITY_CEILING &&
+        this.#random() < shimmer.chance
+      ) {
+        voices.pluck.triggerAttackRelease(
+          midiToNote(degreeToMidi(music.root, music.scale, degree) + 12),
+          length * 0.7,
+          now + shimmer.delay,
+          velocity * shimmer.level,
+        );
       }
     } catch (err) {
       console.error('[quiettype] note failed', err);
@@ -205,6 +317,7 @@ export class AudioEngine {
   /** Choose and hold the next pad chord. */
   #advancePad(now) {
     const { voices } = this.#nodes;
+    if (!voices) return; // mid mood-swap
     const { music } = this.#mood;
     const base = music.padBase + PAD_PROGRESSION[this.#padStep % PAD_PROGRESSION.length];
     this.#padStep += 1;
@@ -212,9 +325,9 @@ export class AudioEngine {
     try {
       voices.pad.triggerAttackRelease(
         chordNotes(music.root, music.scale, base, music.padShape),
-        PAD_PERIOD * 1.5,
+        PAD_PERIOD * PAD_HOLD,
         now,
-        0.5,
+        0.45,
       );
     } catch (err) {
       console.error('[quiettype] pad failed', err);
@@ -226,13 +339,22 @@ export class AudioEngine {
     const { Tone, gain } = this.#nodes;
 
     const { type: pluckType, filter: pluckFilter, ...pluckOptions } = mood.pluck;
-    const pluckVoice = pluckType === 'fm' ? Tone.FMSynth : Tone.Synth;
-    const pluck = new Tone.PolySynth(pluckVoice, pluckOptions);
+    // The object form is the one that actually accepts maxPolyphony; passing it
+    // alongside the voice options lands it in the voice defaults instead.
+    const pluck = new Tone.PolySynth({
+      voice: pluckType === 'fm' ? Tone.FMSynth : Tone.Synth,
+      maxPolyphony: MAX_VOICES,
+      options: pluckOptions,
+    });
     const pluckTone = new Tone.Filter(pluckFilter).connect(gain.pluck);
     pluck.connect(pluckTone);
 
     const { filter: padFilter, ...padOptions } = mood.pad;
-    const pad = new Tone.PolySynth(Tone.Synth, padOptions);
+    const pad = new Tone.PolySynth({
+      voice: Tone.Synth,
+      maxPolyphony: 12,
+      options: padOptions,
+    });
     const padTone = new Tone.Filter(padFilter).connect(gain.pad);
     pad.connect(padTone);
 
@@ -276,23 +398,19 @@ export class AudioEngine {
     this.#nodes.shapers = { pluckTone, padTone, textureTone, breathTone, textureSweep, breathSweep };
   }
 
-  #disposeVoices() {
-    const { voices, shapers } = this.#nodes;
-    for (const node of [...Object.values(voices ?? {}), ...Object.values(shapers ?? {})]) {
-      node?.dispose?.();
-    }
-    this.#nodes.voices = null;
-    this.#nodes.shapers = null;
-  }
-
   dispose() {
     if (!this.#nodes) return;
-    this.#disposeVoices();
+    this.#swapToken += 1; // cancel any pending mood swap
     for (const node of [
+      ...Object.values(this.#nodes.voices ?? {}),
+      ...Object.values(this.#nodes.shapers ?? {}),
       ...Object.values(this.#nodes.gain ?? {}),
+      this.#nodes.rippleSend,
+      this.#nodes.rippleDelay,
       this.#nodes.bus,
-      this.#nodes.delay,
+      this.#nodes.trim,
       this.#nodes.reverb,
+      this.#nodes.glue,
       this.#nodes.limiter,
       this.#nodes.master,
     ]) {
