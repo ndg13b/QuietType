@@ -10,13 +10,21 @@ import { clamp, lerp } from '../util/math.js';
 
 export const LAYERS = /** @type {const} */ (['pluck', 'pad', 'texture', 'breath']);
 
-/** Base target gain (0..1) per layer for each typing state. */
+/**
+ * Base target gain (0..1) per layer for each typing state.
+ *
+ * `rest` keeps the pluck layer open further than "near silence" suggests,
+ * because two things come through it while the page waits: the once-a-breath
+ * chime, and the first keystroke when you come back. At 0.06 both were
+ * inaudible -- returning to the page felt dead for the third of a second the
+ * layer took to ramp up.
+ */
 export const BASE_MIX = {
   idle: { pluck: 0, pad: 0.1, texture: 0, breath: 0.3 },
   flow: { pluck: 1, pad: 0.22, texture: 0, breath: 0 },
   erratic: { pluck: 0.8, pad: 0.28, texture: 0.75, breath: 0 },
   pause: { pluck: 0.45, pad: 0.85, texture: 0.12, breath: 0.1 },
-  rest: { pluck: 0.06, pad: 0.1, texture: 0, breath: 0.95 },
+  rest: { pluck: 0.3, pad: 0.1, texture: 0, breath: 0.95 },
 };
 
 /**
@@ -43,9 +51,14 @@ export function resolveMix(snapshot) {
   const steadiness = clamp(snapshot.steadiness ?? 0.5, 0, 1);
   const corrections = clamp(snapshot.correctionRate ?? 0, 0, 1);
 
+  // "How hard are you typing" only means something while keys are arriving.
+  // Applied at rest it made the chime's level depend on how fast the writer
+  // happened to be going before they walked away.
+  const typing = snapshot.state === 'flow' || snapshot.state === 'erratic';
+
   return {
     // Racing along lifts the plucks; a slow steady trickle stays quiet.
-    pluck: base.pluck * lerp(0.55, 1, intensity),
+    pluck: base.pluck * (typing ? lerp(0.55, 1, intensity) : 1),
     // Unsteady rhythm lets a little more pad through to hold the gaps open.
     pad: clamp(base.pad + (1 - steadiness) * 0.14, 0, 1),
     // Texture tracks how much correcting is going on, not just the state flag.

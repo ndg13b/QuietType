@@ -23,12 +23,15 @@ export class StatusBar {
     };
   }
 
-  /** @param {{ state: string, elapsedMs: number, wpm: number }} snapshot */
-  update(snapshot, wordCount) {
+  /**
+   * @param {{ state: string, elapsedMs: number }} snapshot
+   * @param {number} wordCount
+   * @param {number | null} wpm words per minute, or null before it means anything
+   */
+  update(snapshot, wordCount, wpm) {
     this.#set('state', STATE_LABELS[snapshot.state] ?? snapshot.state);
     this.#set('words', String(wordCount));
-    // Pace is meaningless before there is a rhythm to measure.
-    this.#set('wpm', snapshot.state === 'idle' || !snapshot.wpm ? '—' : `${snapshot.wpm} wpm`);
+    this.#set('wpm', wpm === null ? '—' : `${wpm} wpm`);
     this.#set('time', formatDuration(snapshot.elapsedMs));
   }
 

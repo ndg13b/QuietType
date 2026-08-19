@@ -15,6 +15,7 @@ import { StatusBar } from './ui/status.js';
 import { applyPalette } from './ui/theme.js';
 import { EXPORTERS } from './export/download.js';
 import { countWords } from './export/format.js';
+import { WordRate, sessionWpm } from './util/word-rate.js';
 import * as storage from './util/storage.js';
 
 /** How often the rhythm is re-evaluated (ms). Independent of the frame rate so
@@ -42,6 +43,7 @@ const analyser = new TypingAnalyser();
 const engine = new AudioEngine({ loadTone, mood });
 const field = new VisualField(canvas, mood, { reducedMotion: reducedMotion?.matches });
 const status = new StatusBar();
+const wordRate = new WordRate();
 
 let snapshot = analyser.sample();
 let words = 0;
@@ -182,7 +184,8 @@ async function runExport(format) {
     const result = await exporter.run(note.value, {
       moodName: mood.name,
       durationMs: snapshot.elapsedMs,
-      wpm: snapshot.state === 'idle' ? 0 : snapshot.wpm,
+      // The summary wants the whole session's average, not the last 30 seconds.
+      wpm: sessionWpm(words, snapshot.elapsedMs),
       date: new Date(),
     });
     controls.toast(result.warnings[0] ?? `Saved ${result.filename}`, {
@@ -201,6 +204,7 @@ function clearNote() {
   note.value = '';
   storage.clearDraft();
   analyser.reset();
+  wordRate.reset();
   textDirty = true;
   note.focus();
   controls.toast('Cleared.');
@@ -217,7 +221,12 @@ setInterval(() => {
     words = countWords(note.value);
     textDirty = false;
   }
-  status.update(snapshot, words);
+  // Observed every tick, not only on change: standing still is information,
+  // and it is what makes the pace fall away when you stop. But not before the
+  // first keystroke -- otherwise the window opens when the page loads and the
+  // first reading is diluted by however long you sat looking at a blank page.
+  if (snapshot.state !== 'idle') wordRate.observe(words, performance.now());
+  status.update(snapshot, words, wordRate.wpm);
 
   const deep =
     snapshot.state === 'flow' &&

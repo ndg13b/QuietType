@@ -34,19 +34,25 @@ import { LAYERS, rampFor, resolveMix } from './mix.js';
 import { MelodicWalk } from './melody.js';
 
 /**
- * Never fire two plucks closer together than this (seconds).
+ * Never fire two plucks closer together than this (seconds), widening as
+ * typing gets denser.
  *
- * This is a polyphony budget as much as a musical choice. A voice occupies a
- * slot for its note length plus its release -- around 3.5 s with these presets
- * -- so ~7.7 notes a second is what keeps the worst case under MAX_VOICES.
- * Typing faster than this groups into bursts, which is what the brief asks for
- * anyway; the perceived length of each note comes from the ripple send and the
- * reverb, neither of which costs a voice.
+ * This is a polyphony budget as much as a musical choice. A voice holds a slot
+ * for its note length plus its release, and every live voice is real DSP: the
+ * moods differ by 2x in oscillators per voice, so the worst case has to be set
+ * by the most expensive one. Hammering the keyboard used to pin every mood at
+ * maximum polyphony indefinitely; widening the gap under load keeps the
+ * sustained worst case well under MAX_VOICES.
+ *
+ * Grouping dense typing into sparser notes is also what the brief asks for,
+ * and costs nothing musically: the perceived length of each note comes from
+ * the ripple send and the reverb, neither of which costs a voice.
  */
-const MIN_NOTE_GAP = 0.13;
+const NOTE_GAP_RELAXED = 0.13;
+const NOTE_GAP_DENSE = 0.19;
 
 /** Voice ceiling for the pluck layer. Above this Tone starts stealing notes. */
-const MAX_VOICES = 32;
+const MAX_VOICES = 20;
 
 /** Beyond this typing intensity the shimmer partner is skipped, to stay inside
  *  the voice budget exactly when the budget is tightest. */
@@ -63,6 +69,12 @@ const PAD_PROGRESSION = [0, 3, -2, 4, 1, -3];
 /** Silent window used when swapping a mood's voices, so the cut is inaudible. */
 const SWAP_FADE = 0.25;
 
+/** Scale degrees the resting chime rotates through, relative to the walk's
+ *  centre. A short, repeating figure on purpose -- predictability is the point
+ *  when the page is meant to be keeping you company rather than holding your
+ *  attention. */
+const REST_FIGURE = [0, 2, 4, 2];
+
 const dbToGain = (db) => 10 ** (db / 20);
 
 export class AudioEngine {
@@ -76,6 +88,9 @@ export class AudioEngine {
   #lastNoteAt = -Infinity;
   #nextPadAt = 0;
   #padStep = 0;
+  #nextBreathAt = 0;
+  #breathStep = 0;
+  #lastState = 'idle';
   /** Guards against overlapping mood swaps. */
   #swapToken = 0;
   #walk;
@@ -204,7 +219,9 @@ export class AudioEngine {
 
       this.#buildVoices(mood);
       this.#padStep = 0;
+      this.#breathStep = 0;
       this.#nextPadAt = Tone.now() + 0.3;
+      this.#nextBreathAt = Tone.now() + 1.2;
       bus.gain.rampTo(1, SWAP_FADE);
     }, SWAP_FADE * 1000 + 40);
   }
@@ -230,11 +247,11 @@ export class AudioEngine {
     const { Tone, voices } = this.#nodes;
     if (!voices) return; // mid mood-swap
     const now = Tone.now();
-    if (now - this.#lastNoteAt < MIN_NOTE_GAP) return;
-    this.#lastNoteAt = now;
-
     const { music } = this.#mood;
     const intensity = clamp(snapshot?.intensity ?? 0.4, 0, 1);
+    if (now - this.#lastNoteAt < mapRange(intensity, 0, 1, NOTE_GAP_RELAXED, NOTE_GAP_DENSE)) return;
+    this.#lastNoteAt = now;
+
     const velocity = clamp(0.2 + intensity * 0.4 + this.#random() * 0.1, 0.05, 0.8);
     const decay = music.pluckDecay;
 
@@ -312,6 +329,44 @@ export class AudioEngine {
 
     const now = Tone.now();
     if (now >= this.#nextPadAt) this.#advancePad(now);
+
+    // Entering rest starts a fresh breath, so the first chime arrives promptly
+    // instead of up to a full cycle later.
+    if (snapshot.state === 'rest' && this.#lastState !== 'rest') {
+      this.#nextBreathAt = now + 1.2;
+      this.#breathStep = 0;
+    }
+    this.#lastState = snapshot.state;
+
+    if (snapshot.state === 'rest' && now >= this.#nextBreathAt) this.#breathe(now);
+  }
+
+  /**
+   * One note per breath while the page waits. The brief asks for near-silence
+   * at rest, which a bare drone delivers a little too literally: nothing
+   * changes, so there is nothing to settle into.
+   */
+  #breathe(now) {
+    const { voices } = this.#nodes;
+    const rest = this.#mood.rest;
+    if (!voices || !rest?.chime) return;
+
+    const { music } = this.#mood;
+    const centre = Math.round((music.range[0] + music.range[1]) / 2);
+    const degree = centre + REST_FIGURE[this.#breathStep % REST_FIGURE.length];
+    this.#breathStep += 1;
+
+    try {
+      voices.pluck.triggerAttackRelease(
+        degreeToNote(music.root, music.scale, degree),
+        music.pluckDecay * 1.6,
+        now,
+        rest.chime,
+      );
+    } catch (err) {
+      console.error('[quiettype] rest chime failed', err);
+    }
+    this.#nextBreathAt = now + rest.period;
   }
 
   /** Choose and hold the next pad chord. */
@@ -391,9 +446,20 @@ export class AudioEngine {
       detune: 7,
       volume: mood.breath.volume - 3,
     }).start();
-    const breathTone = new Tone.Filter({ type: 'lowpass', frequency: 500, Q: 1.2 }).connect(gain.breath);
+    // The drone rises and falls on the breath. Its own gain sits under the
+    // layer mix so the two are independent: the mix decides whether the drone
+    // is present at all, this decides its shape while it is.
+    const breathSwell = new Tone.Gain(0).connect(gain.breath);
+    const breathTone = new Tone.Filter({ type: 'lowpass', frequency: 500, Q: 1.2 }).connect(breathSwell);
     breathA.connect(breathTone);
     breathB.connect(breathTone);
+    const [swellLow, swellHigh] = mood.rest?.swell ?? [1, 1];
+    const breathPulse = new Tone.LFO({
+      frequency: 1 / (mood.rest?.period ?? 10),
+      min: swellLow,
+      max: swellHigh,
+    }).start();
+    breathPulse.connect(breathSwell.gain);
     const breathSweep = new Tone.LFO({
       frequency: mood.breath.sweep.rate,
       min: mood.breath.sweep.min,
@@ -402,7 +468,10 @@ export class AudioEngine {
     breathSweep.connect(breathTone.frequency);
 
     this.#nodes.voices = { pluck, pad, texture, breathA, breathB };
-    this.#nodes.shapers = { pluckTone, padTone, textureTone, breathTone, textureSweep, breathSweep };
+    this.#nodes.shapers = {
+      pluckTone, padTone, textureTone, breathTone, breathSwell,
+      textureSweep, breathSweep, breathPulse,
+    };
   }
 
   dispose() {

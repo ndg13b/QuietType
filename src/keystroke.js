@@ -179,8 +179,13 @@ export class TypingAnalyser extends Emitter {
       keyCount: this.#keyCount,
       correctionCount: this.#correctionCount,
       elapsedMs: this.#startedAt === null ? 0 : at - this.#startedAt,
-      /** Rough words-per-minute from the in-burst pulse, 5 chars to a word. */
-      wpm: med > 0 ? Math.round(60000 / (med * 5)) : 0,
+      /**
+       * Keystrokes per minute from the in-burst pulse. Deliberately NOT
+       * called words per minute: this counts every key including the ones
+       * that delete what you just wrote. Real pace comes from
+       * util/word-rate.js, which counts words.
+       */
+      keysPerMinute: med > 0 ? Math.round(60000 / med) : 0,
     };
   }
 
