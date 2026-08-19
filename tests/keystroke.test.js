@@ -4,6 +4,7 @@ import {
   MIN_SAMPLES,
   PAUSE_MS,
   REST_MS,
+  RHYTHM_GAP_MS,
   TypingAnalyser,
   classifyKey,
 } from '../src/keystroke.js';
@@ -139,7 +140,7 @@ describe('TypingAnalyser state machine', () => {
     burst(h, 12, 110);
     const before = h.sample().steadiness;
 
-    h.wait(4000);
+    h.wait(REST_MS - 1000);
     burst(h, 4, 110);
     const after = h.sample();
 
@@ -158,14 +159,41 @@ describe('TypingAnalyser state machine', () => {
     assert.equal(s.steadiness, 0.5);
   });
 
-  it('tracks burst length and resets it across a pause', () => {
+  it('tracks burst length and resets it across a hesitation', () => {
     const h = harness();
     burst(h, 5, 100);
     assert.equal(h.sample().burst, 5);
-    h.wait(PAUSE_MS + 10);
+    h.wait(RHYTHM_GAP_MS + 10);
     assert.equal(h.sample().burst, 0);
     h.type('a', 0);
     assert.equal(h.sample().burst, 1);
+  });
+
+  it('keeps a brief think inside flow, rather than calling it a pause', () => {
+    const h = harness();
+    burst(h, 10, 120);
+    // Long enough to break the rhythm, far short of having stopped writing.
+    h.wait(RHYTHM_GAP_MS + 800);
+    assert.equal(h.sample().state, 'flow');
+    burst(h, 4, 120);
+    assert.equal(h.sample().state, 'flow');
+  });
+
+  it('separates the pause threshold from the rhythm-gap threshold', () => {
+    // They answer different questions and must be free to differ.
+    assert.ok(PAUSE_MS > RHYTHM_GAP_MS);
+
+    const h = harness();
+    burst(h, 12, 110);
+    const steady = h.sample().steadiness;
+    // A gap between the two thresholds: still flow, and it must not be fed to
+    // the rhythm statistics.
+    h.wait((PAUSE_MS + RHYTHM_GAP_MS) / 2);
+    burst(h, 4, 110);
+    const after = h.sample();
+    assert.equal(after.state, 'flow');
+    assert.ok(Math.abs(after.steadiness - steady) < 0.05,
+      `steadiness moved from ${steady} to ${after.steadiness}`);
   });
 
   it('emits keystroke and state events', () => {
