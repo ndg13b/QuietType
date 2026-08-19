@@ -1,0 +1,499 @@
+/*
+ * QuietType
+ *
+ * Colour comes entirely from the active mood: main.js writes --surface, --ink,
+ * --accent and friends onto :root when the mood changes, and everything here
+ * derives from those. Adding a mood therefore needs no CSS at all.
+ */
+
+:root {
+  /* Overwritten by the mood palette on load; these are the "calm" values so
+     the first paint is already correct. */
+  --surface: #08141b;
+  --surface-raised: #0e222d;
+  --ink: #dcefef;
+  --ink-soft: #7fa3a8;
+  --accent: #6fd6c4;
+  --accent-soft: #2a6b68;
+
+  /* Derived tints. The rgba() lines are the fallback; browsers that know
+     color-mix() take the second declaration and track the mood exactly. */
+  --line: rgba(127, 163, 168, 0.18);
+  --line: color-mix(in srgb, var(--ink) 14%, transparent);
+  --veil: rgba(8, 20, 27, 0.72);
+  --veil: color-mix(in srgb, var(--surface) 82%, transparent);
+  --hover: rgba(127, 163, 168, 0.1);
+  --hover: color-mix(in srgb, var(--ink) 8%, transparent);
+
+  --measure: 68ch;
+  --gutter: clamp(1rem, 4vw, 3rem);
+  --radius: 12px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+  --font-note: ui-serif, Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  transition: background 900ms var(--ease), color 900ms var(--ease);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#field {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  padding: 0 var(--gutter);
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 1.1rem 0 0.9rem;
+  /* The chrome steps back while you are actually writing; see [data-flow]. */
+  transition: opacity 700ms var(--ease);
+}
+
+.brand {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.brand span { color: var(--accent); }
+
+.moods {
+  display: flex;
+  gap: 0.35rem;
+  margin-inline: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--veil);
+}
+
+.moods button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  background: transparent;
+  cursor: pointer;
+  transition: color 300ms var(--ease), background 300ms var(--ease);
+}
+
+.moods button:hover { color: var(--ink); background: var(--hover); }
+
+.moods button[aria-checked='true'] {
+  color: var(--surface);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+.bar__tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.42rem 0.9rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  background: var(--veil);
+  cursor: pointer;
+  transition: color 250ms var(--ease), border-color 250ms var(--ease);
+}
+
+.tool:hover { color: var(--ink); border-color: var(--accent-soft); }
+
+.tool--primary { color: var(--ink); }
+
+.tool__icon {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent);
+  transition: background 250ms var(--ease), box-shadow 900ms var(--ease);
+}
+
+/* Muted, or audio never started: the dot goes hollow. */
+.tool[aria-pressed='false'] .tool__icon {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-soft);
+}
+
+/* A slow pulse while sound is actually running. */
+.tool[data-live='true'] .tool__icon { animation: pulse 3.4s var(--ease) infinite; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+
+.volume { display: flex; align-items: center; }
+
+.volume input {
+  width: 78px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------ export menu */
+
+.menu { position: relative; }
+
+.menu__list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 10;
+  min-width: 12rem;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+.menu__list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.menu__list button:hover { background: var(--hover); }
+.menu__list small { color: var(--ink-soft); font-size: 0.72rem; }
+.menu__list button[disabled] { opacity: 0.45; cursor: progress; }
+
+/* --------------------------------------------------------------- the page */
+
+.page {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: clamp(1rem, 5vh, 3.5rem) 0 1rem;
+}
+
+.note {
+  width: 100%;
+  max-width: var(--measure);
+  min-height: 40vh;
+  border: 0;
+  padding: 0;
+  resize: none;
+  font-family: var(--font-note);
+  font-size: clamp(1.02rem, 0.95rem + 0.4vw, 1.2rem);
+  line-height: 1.85;
+  color: var(--ink);
+  background: transparent;
+  caret-color: var(--accent);
+  transition: color 900ms var(--ease);
+}
+
+.note::placeholder { color: var(--ink-soft); opacity: 0.55; }
+.note:focus { outline: none; }
+
+/* ------------------------------------------------------------ status line */
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding: 0.9rem 0 1.3rem;
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  transition: opacity 700ms var(--ease);
+}
+
+.status__stats { display: flex; gap: 1.4rem; margin: 0; }
+.status__stats > div { display: flex; align-items: baseline; gap: 0.4rem; }
+
+.status__stats dt {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.64rem;
+  opacity: 0.75;
+}
+
+.status__stats dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.status__note { margin: 0; }
+
+.linky {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink-soft);
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.linky:hover { color: var(--accent); }
+
+/* ------------------------------------------------------------ about panel */
+
+.about {
+  max-width: var(--measure);
+  margin: 0 auto 2rem;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.about h2 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.about p { margin: 0 0 0.8rem; }
+.about ul { margin: 0 0 0.9rem; padding-left: 1.1rem; }
+.about li { margin-bottom: 0.3rem; }
+.about strong { color: var(--ink); font-weight: 600; }
+.about__privacy { color: var(--accent); }
+.about__actions { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------- welcome */
+
+.welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: var(--veil);
+  backdrop-filter: blur(14px);
+  transition: opacity 500ms var(--ease), visibility 500ms;
+}
+
+.welcome[hidden] {
+  display: grid;          /* keep the fade instead of snapping away */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.welcome__panel {
+  width: min(46rem, 100%);
+  padding: clamp(1.6rem, 4vw, 2.8rem);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface-raised);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.welcome__eyebrow {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.welcome__panel h2 {
+  margin: 0 0 0.9rem;
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.welcome__panel h2 span { color: var(--accent); }
+
+.welcome__lede {
+  max-width: 34rem;
+  margin: 0 auto 1.8rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.welcome__moods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.welcome__moods button {
+  /* Flex, not block: a button's anonymous box centres its content, which
+     leaves cards with shorter descriptions sitting lower than their neighbours. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem 1rem;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 250ms var(--ease), transform 250ms var(--ease),
+              background 250ms var(--ease);
+}
+
+.welcome__moods button:hover {
+  border-color: var(--accent);
+  background: var(--hover);
+  transform: translateY(-2px);
+}
+
+.welcome__moods strong { display: block; font-size: 1rem; margin-bottom: 0.15rem; }
+
+.welcome__moods em {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.welcome__moods small { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.5; }
+
+.welcome__fine { margin: 0; font-size: 0.76rem; color: var(--ink-soft); }
+
+/* ----------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 30;
+  transform: translate(-50%, 1rem);
+  margin: 0;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: 0.82rem;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms var(--ease), transform 300ms var(--ease);
+}
+
+.toast[data-visible='true'] { opacity: 1; transform: translate(-50%, 0); }
+
+.noscript {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 0.8rem;
+  text-align: center;
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------- states */
+
+/* While the writing is flowing, everything but the text quietly recedes. */
+body[data-flow='deep'] .bar,
+body[data-flow='deep'] .status { opacity: 0.28; }
+
+body[data-flow='deep'] .bar:hover,
+body[data-flow='deep'] .bar:focus-within,
+body[data-flow='deep'] .status:hover,
+body[data-flow='deep'] .status:focus-within { opacity: 1; }
+
+:where(button, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+@media (max-width: 720px) {
+  .moods { order: 3; width: 100%; margin-inline: 0; justify-content: center; }
+  .bar__tools { gap: 0.4rem; }
+  .volume { display: none; }
+  .status__stats { gap: 1rem; }
+  .note { min-height: 50vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .welcome__moods button:hover { transform: none; }
+}
