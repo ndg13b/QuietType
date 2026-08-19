@@ -87,6 +87,59 @@ Layers fade at different rates in each direction (`RAMP_SECONDS`): plucks answer
 in a third of a second, pads arrive over two and a half. Same targets, very
 different feel.
 
+## Audio levels are measured, not calculated
+
+The numbers in `moods.js` were set by rendering the app in a headless browser
+and measuring the output, because reasoning about them from first principles
+gets two things wrong:
+
+- **Envelope shape decides heard loudness, not the volume field.** An FM bell
+  with `sustain: 0.06` and a filtered sawtooth with a fast decay measured about
+  11 and 12 dB below a triangle at the *same* nominal volume. That is why the
+  three moods' pluck volumes look wildly inconsistent: they are the numbers
+  that make the three sound alike.
+- **A continuous source collects far more reverb energy than a transient one.**
+  The drone is the only layer that never stops, so it accumulates in a 9-12 s
+  reverb in a way a pluck never does. Before this was measured, resting on the
+  page was ~9 dB *louder* than typing on it, which is exactly backwards. The
+  drones now sit 10-11 dB below the typing level, and their volume fields look
+  absurdly low (-36 to -43 dB) for that reason.
+
+`trim` is the one knob for moving a whole mood against the others; per-layer
+volumes balance the layers within a mood.
+
+## Keeping the master chain out of the way
+
+Three things that used to make fast typing sound like it was breaking up:
+
+1. **Voice stealing.** Plucks were fired every 55 ms and rang for nearly three
+   seconds, which needs ~52 voices; Tone's default ceiling is 32, so it dropped
+   and stole notes, cutting them off mid-ring. `MIN_NOTE_GAP` is now derived
+   from the note's lifetime and the voice ceiling, so the worst case fits.
+   Typing faster than that groups into bursts, which is what the brief asks for
+   anyway.
+2. **The pad stacking on itself.** Chords were held for 13.5 s and released
+   over 5-9 s but retriggered every 9 s, so two or three were always sounding
+   at once -- up to 40 oscillators of sustained low end. The hold is now
+   shorter than the period.
+3. **A brick wall doing the level control.** `Limiter(-3)` is a 20:1 compressor
+   with a 10 ms release; on bass-heavy material that is heard as gritty
+   pumping. A gentle glue compressor now takes the peaks off, and the limiter
+   sits at -1 dBFS as a safety catch that should never engage.
+
+## Where "long and ethereal" comes from
+
+Not from longer notes. Doubling a note's length doubles how long it occupies a
+voice, which walks straight back into the problem above. The length comes from
+a **ripple send** instead: the pluck layer's gain feeds a feedback delay whose
+output rejoins the bus ahead of the reverb, so every keystroke throws off a
+decaying series of echoes that wash into the room. Echoes cost no polyphony.
+
+The send is tapped *after* the pluck layer gain, so the typing state controls
+how much new energy enters the echoes while tails already in flight decay
+naturally -- which is why the sound keeps blooming for a few seconds after you
+stop typing.
+
 ## No build step
 
 The site is plain ES modules, so it can be opened from any static server and

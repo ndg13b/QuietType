@@ -50,7 +50,10 @@ The state drives the mix of four continuously-running sound layers:
 | **rest** — quiet for 10 s | Everything falls away but one slow, breathing tone |
 
 Notes come from a melodic random walk over the active scale rather than from
-random pitches, so the accompaniment sounds played rather than triggered.
+random pitches, so the accompaniment sounds played rather than triggered. Each
+keystroke also feeds a ripple send -- a feedback delay running into the room
+reverb -- so a single key blooms into a decaying series of echoes rather than a
+single short note.
 
 ### Moods
 
