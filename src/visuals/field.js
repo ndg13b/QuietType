@@ -34,6 +34,7 @@ export class VisualField {
   #unrest = 0;
   #calm = 0;
   #time = 0;
+  #breathPeriodMs = 10000;
   #reducedMotion = false;
 
   /**
@@ -52,6 +53,7 @@ export class VisualField {
   setMood(mood) {
     this.#palette = mood.palette;
     this.#glow = mood.palette.glow.map(toRgbParts);
+    this.#breathPeriodMs = (mood.rest?.period ?? 10) * 1000;
   }
 
   setReducedMotion(reduced) {
@@ -215,10 +217,11 @@ export class VisualField {
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  /** The slow pulse that takes over once the page has been left alone. */
+  /** The slow pulse that takes over once the page has been left alone.
+   *  Same period as the audible breath, so sight and sound agree. */
   #drawBreath(ctx) {
     if (this.#calm < 0.01) return;
-    const period = this.#reducedMotion ? 12000 : 7200;
+    const period = this.#breathPeriodMs;
     const swell = (Math.sin((this.#time / period) * Math.PI * 2) + 1) / 2;
     const radius = Math.min(this.#width, this.#height) * lerp(0.16, 0.3, swell);
     const x = this.#width / 2;

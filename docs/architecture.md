@@ -129,7 +129,18 @@ Three things that used to make fast typing sound like it was breaking up:
    over 5-9 s but retriggered every 9 s, so two or three were always sounding
    at once -- up to 40 oscillators of sustained low end. The hold is now
    shorter than the period.
-3. **A brick wall doing the level control.** `Limiter(-3)` is a 20:1 compressor
+3. **DSP load, which is the one that is invisible in the signal.** The moods
+   are not equally expensive: Calm runs one oscillator per voice, the other two
+   run two, and Moody carried a 12-second convolution reverb. Sustained
+   hammering pinned every mood at maximum polyphony indefinitely, so the
+   expensive moods sat at roughly twice Calm's oscillator count with the
+   longest impulse response in the graph. Nothing about this shows up in a
+   level or spectrum measurement of a machine that is keeping up -- it shows up
+   as dropouts on one that is not. The note gap now widens as typing gets
+   denser, the voice ceiling is lower, releases are shorter and the reverbs are
+   shorter, which roughly halves the worst-case oscillator count on the two
+   expensive moods.
+4. **A brick wall doing the level control.** `Limiter(-3)` is a 20:1 compressor
    with a 10 ms release; on bass-heavy material that is heard as gritty
    pumping. A gentle glue compressor now takes the peaks off, and the limiter
    sits at -1 dBFS as a safety catch that should never engage.
@@ -179,6 +190,44 @@ The send is tapped *after* the pluck layer gain, so the typing state controls
 how much new energy enters the echoes while tails already in flight decay
 naturally -- which is why the sound keeps blooming for a few seconds after you
 stop typing.
+
+## Pace is words, not keystrokes
+
+It used to be `60000 / (medianInterval * 5)` -- the interval between keys, run
+through the old "five characters to a word" convention. That is not words per
+minute. It counts backspaces as progress, reports a speed while you delete a
+paragraph, and answers "how fast are your fingers moving" rather than "how much
+writing is getting done".
+
+`util/word-rate.js` counts actual words over a trailing window instead. Only
+the *count* crosses the line -- the analyser still never sees text, and the
+count is already on screen. Two details that matter: the window opens on the
+first keystroke rather than on page load (or the first reading is diluted by
+however long the page sat blank), and the rate genuinely decays toward zero
+while you sit still, which is what words per minute means.
+
+Exports use a whole-session average instead, which is the more useful number
+for a summary: 412 words in 22 minutes.
+
+## What resting sounds like, and the frequency question
+
+The brief asks for near-silence at rest, which a bare drone delivers a little
+too literally -- nothing changes, so there is nothing to settle into. The page
+now breathes: the drone swells and fades, and one chime sounds per breath,
+rotating through a four-note figure. Predictability is the point here, rather
+than something to apologise for.
+
+The breath is six per minute. That number is not decoration and it is not a
+"healing frequency". Claims about specific *pitches* being calming -- 432 Hz
+over 440 Hz, the Solfeggio set -- have no credible support and are not worth
+building on. What does have replicated support is *pacing*: breathing at around
+five to six breaths a minute sits near the baroreflex resonance frequency,
+raises heart-rate variability, and is the rate paced-breathing relaxation
+protocols actually use. So the rhythm is the part worth borrowing. Whether
+anyone falls in with it is up to them; the page just offers the tempo.
+
+The visual pulse reads the same `rest.period`, so what you see and what you
+hear breathe together.
 
 ## No build step
 

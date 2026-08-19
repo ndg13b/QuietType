@@ -45,18 +45,37 @@ describe('resolveMix', () => {
     assert.ok(mix.pluck > 0.4, 'plucks keep going while the texture layers on');
   });
 
-  it('a long rest leaves one slow tone and near-silence elsewhere', () => {
+  it('a long rest leaves the slow tone in front of everything else', () => {
     const mix = mixFor('rest');
-    assert.ok(mix.breath > 0.9);
-    assert.ok(mix.pluck < 0.1);
+    assert.ok(mix.breath > 0.9, 'the drone should dominate');
     assert.ok(mix.texture < 0.1);
     assert.ok(mix.pad < 0.2);
+    assert.ok(mix.pluck < mix.breath / 2, 'plucks stay well under the drone');
+  });
+
+  it('leaves the pluck layer open enough at rest to be heard returning', () => {
+    // The once-a-breath chime and the first keystroke back both arrive through
+    // this layer, so it cannot be shut all the way.
+    assert.ok(mixFor('rest').pluck > 0.2);
   });
 
   /* Continuous modulation on top of the state. */
 
   it('scales the plucks with typing intensity', () => {
     assert.ok(mixFor('flow', { intensity: 1 }).pluck > mixFor('flow', { intensity: 0 }).pluck);
+  });
+
+  it('ignores intensity once typing has stopped', () => {
+    // Otherwise the resting chime is loud or quiet depending on how fast the
+    // writer was going before they stopped, which is not a thing it should
+    // depend on.
+    for (const state of ['rest', 'pause', 'idle']) {
+      assert.equal(
+        mixFor(state, { intensity: 1 }).pluck,
+        mixFor(state, { intensity: 0 }).pluck,
+        state,
+      );
+    }
   });
 
   it('lets more pad through when the rhythm is unsteady', () => {

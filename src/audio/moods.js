@@ -48,7 +48,7 @@ export const MOODS = {
       oscillator: { type: 'triangle' },
       // A gentle attack lets each note bloom instead of clicking, and the long
       // release is what carries it into the ripple send.
-      envelope: { attack: 0.015, decay: 0.9, sustain: 0.12, release: 2.2 },
+      envelope: { attack: 0.015, decay: 0.9, sustain: 0.12, release: 1.8 },
       filter: { type: 'lowpass', frequency: 3600, Q: 0.7 },
       volume: -21,
     },
@@ -74,8 +74,21 @@ export const MOODS = {
       volume: -43,
     },
     /** Echoes thrown off by each keystroke: the audible ripple. */
+    /**
+     * What resting sounds like. `period` is one breath.
+     *
+     * Six per minute is not an arbitrary number and not a "healing frequency".
+     * Tuning claims of that kind -- 432 Hz being calmer than 440 Hz, the
+     * Solfeggio set -- have no support; the pitch is arbitrary. What does have
+     * replicated support is *pacing*: breathing at roughly five to six breaths
+     * a minute sits at the baroreflex resonance frequency, raises heart-rate
+     * variability, and is what paced-breathing relaxation protocols actually
+     * use. So the rhythm is the part worth borrowing, not a magic pitch, and
+     * the page breathes at six a minute for you to fall in with if you like.
+     */
+    rest: { period: 10, swell: [0.45, 1], chime: 0.34 },
     ripple: { delayTime: 0.34, feedback: 0.48, send: 0.52 },
-    reverb: { decay: 9, wet: 0.5 },
+    reverb: { decay: 7, wet: 0.52 },
     palette: {
       scheme: 'dark',
       surface: '#08141b',
@@ -110,7 +123,7 @@ export const MOODS = {
       harmonicity: 2.5,
       oscillator: { type: 'sine' },
       modulation: { type: 'sawtooth' },
-      envelope: { attack: 0.006, decay: 1, sustain: 0.06, release: 1.9 },
+      envelope: { attack: 0.006, decay: 1, sustain: 0.06, release: 1.6 },
       modulationEnvelope: { attack: 0.004, decay: 0.35, sustain: 0.15, release: 0.6 },
       filter: { type: 'lowpass', frequency: 5200, Q: 0.5 },
       volume: -2,
@@ -134,8 +147,9 @@ export const MOODS = {
       sweep: { min: 300, max: 1100, rate: 0.045 },
       volume: -36,
     },
+    rest: { period: 10, swell: [0.55, 1], chime: 0.22 },
     ripple: { delayTime: 0.27, feedback: 0.44, send: 0.48 },
-    reverb: { decay: 6, wet: 0.44 },
+    reverb: { decay: 5, wet: 0.46 },
     palette: {
       scheme: 'light',
       surface: '#f7f0e2',
@@ -171,7 +185,7 @@ export const MOODS = {
       // makes this mood feel unsettled, and every extra oscillator is another
       // voice summing into the master chain.
       oscillator: { type: 'fatsawtooth', count: 2, spread: 14 },
-      envelope: { attack: 0.02, decay: 1, sustain: 0.05, release: 2.4 },
+      envelope: { attack: 0.02, decay: 1, sustain: 0.05, release: 1.9 },
       filter: { type: 'lowpass', frequency: 1300, Q: 1.1 },
       detune: -5,
       volume: -9,
@@ -199,8 +213,9 @@ export const MOODS = {
       sweep: { min: 140, max: 520, rate: 0.028 },
       volume: -35,
     },
+    rest: { period: 10, swell: [0.4, 1], chime: 0.18 },
     ripple: { delayTime: 0.44, feedback: 0.46, send: 0.52 },
-    reverb: { decay: 12, wet: 0.46 },
+    reverb: { decay: 7.5, wet: 0.5 },
     palette: {
       scheme: 'dark',
       surface: '#0b0912',

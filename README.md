@@ -40,6 +40,10 @@ character. From the recent gaps it derives:
 | `correctionRate` | Share of recent keys that were corrections |
 | `state` | `idle` · `flow` · `erratic` · `pause` · `rest` |
 
+Pace on the status bar is measured in **actual words** over a trailing window
+(`src/util/word-rate.js`), not inferred from keystroke timing — deleting a
+paragraph lowers it, as it should.
+
 The state drives the mix of four continuously-running sound layers:
 
 | State | What you hear |
@@ -47,7 +51,7 @@ The state drives the mix of four continuously-running sound layers:
 | **flow** — typing along | Short plucked notes, one per keystroke, snapped to the scale |
 | **pause** — quiet for 5 s | A soft pad swells in underneath |
 | **erratic** — backspacing, lurching rhythm | A detuned, filtered texture layers on top |
-| **rest** — quiet for 10 s | Everything falls away but one slow, breathing tone |
+| **rest** — quiet for 10 s | Everything falls away but one slow tone, swelling and chiming once per breath |
 
 Notes come from a melodic random walk over the active scale rather than from
 random pitches, so the accompaniment sounds played rather than triggered. Each

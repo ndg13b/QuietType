@@ -70,7 +70,7 @@ describe('TypingAnalyser state machine', () => {
     assert.equal(s.state, 'flow');
     assert.ok(s.intensity > 0.8, `intensity ${s.intensity}`);
     assert.ok(s.steadiness > 0.9, `steadiness ${s.steadiness}`);
-    assert.ok(s.wpm > 60, `wpm ${s.wpm}`);
+    assert.ok(s.keysPerMinute > 300, `keysPerMinute ${s.keysPerMinute}`);
   });
 
   it('reports flow for slow but even typing, at a lower intensity', () => {
