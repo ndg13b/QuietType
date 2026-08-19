@@ -1,0 +1,16 @@
+{
+  "name": "quiettype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ambient note-taking where your typing rhythm plays the music.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check-assets.mjs && npm test"
+  }
+}
