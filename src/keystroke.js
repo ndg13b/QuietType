@@ -13,8 +13,25 @@
 import { Emitter } from './util/emitter.js';
 import { clamp, mapRange, median, medianSuccessiveDelta } from './util/math.js';
 
-/** A gap longer than this reads as "stopped to think", not as rhythm. */
-export const PAUSE_MS = 1200;
+/**
+ * How long the quiet has to last before the sound acknowledges it.
+ *
+ * Deliberately generous. Reaching for a comma, glancing at a note, or simply
+ * thinking mid-sentence is still writing, and having the music change
+ * character every time you draw breath is worse than having it wait.
+ */
+export const PAUSE_MS = 5000;
+
+/**
+ * The longest gap that still counts as part of a rhythm.
+ *
+ * Kept separate from PAUSE_MS, which it used to share a value with. They
+ * answer different questions -- "has the writer stopped?" versus "is this gap
+ * part of a pulse?" -- and tying them together means raising the pause
+ * threshold would quietly let five-second gaps into the statistics and wreck
+ * every steadiness reading.
+ */
+export const RHYTHM_GAP_MS = 1200;
 /** A gap longer than this reads as "walked away from the page". */
 export const REST_MS = 10000;
 /** How many recent in-burst intervals feed the rhythm statistics. */
@@ -94,10 +111,10 @@ export class TypingAnalyser extends Emitter {
     const gap = this.#lastKeyAt === null ? null : at - this.#lastKeyAt;
     if (this.#startedAt === null) this.#startedAt = at;
 
-    // Gaps beyond PAUSE_MS are pauses, not rhythm. Feeding them to the
-    // statistics would make every return from a pause look erratic for the
+    // Gaps beyond RHYTHM_GAP_MS are hesitations, not rhythm. Feeding them to
+    // the statistics would make every return from a pause look erratic for the
     // next two dozen keys.
-    if (gap !== null && gap < PAUSE_MS) {
+    if (gap !== null && gap < RHYTHM_GAP_MS) {
       this.#intervals.push(gap);
       if (this.#intervals.length > HISTORY) this.#intervals.shift();
       this.#burst += 1;
@@ -158,7 +175,7 @@ export class TypingAnalyser extends Emitter {
       steadiness,
       correctionRate,
       medianInterval: med,
-      burst: sinceLast > PAUSE_MS ? 0 : this.#burst,
+      burst: sinceLast > RHYTHM_GAP_MS ? 0 : this.#burst,
       keyCount: this.#keyCount,
       correctionCount: this.#correctionCount,
       elapsedMs: this.#startedAt === null ? 0 : at - this.#startedAt,

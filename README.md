@@ -45,7 +45,7 @@ The state drives the mix of four continuously-running sound layers:
 | State | What you hear |
 | --- | --- |
 | **flow** — typing along | Short plucked notes, one per keystroke, snapped to the scale |
-| **pause** — quiet for ~1.2 s | A soft pad swells in underneath |
+| **pause** — quiet for 5 s | A soft pad swells in underneath |
 | **erratic** — backspacing, lurching rhythm | A detuned, filtered texture layers on top |
 | **rest** — quiet for 10 s | Everything falls away but one slow, breathing tone |
 
@@ -64,7 +64,7 @@ the page and the canvas both read. Adding one means adding an entry to
 | Mood | Scale | Character |
 | --- | --- | --- |
 | **Calm** | D major pentatonic | Glassy plucks, long reverb, cool dark palette |
-| **Bright** | G major | FM bell plucks, warm light palette |
+| **Bright** | G major | AM bell plucks, warm light palette |
 | **Moody** | A aeolian | Detuned saws under a low filter, dark violet palette |
 
 ### Export

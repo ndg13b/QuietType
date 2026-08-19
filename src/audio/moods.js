@@ -33,7 +33,7 @@ export const MOODS = {
     name: 'Calm',
     tagline: 'Ambient',
     description: 'Pentatonic, soft pads and glassy plucks over a cool palette.',
-    trim: 6,
+    trim: 5,
     music: {
       root: noteToMidi('D3'),
       scale: SCALES.majorPentatonic,
@@ -103,15 +103,17 @@ export const MOODS = {
       pluckDecay: 1.3,
     },
     pluck: {
-      type: 'fm',
-      harmonicity: 3.01,
-      modulationIndex: 6.5,
+      // AM rather than FM: see engine.js. 2.5 is deliberately not a whole
+      // number -- the inharmonic partials that come out of a non-integer
+      // ratio are what make this read as a bell rather than an organ.
+      type: 'am',
+      harmonicity: 2.5,
       oscillator: { type: 'sine' },
+      modulation: { type: 'sawtooth' },
       envelope: { attack: 0.006, decay: 1, sustain: 0.06, release: 1.9 },
-      modulation: { type: 'sine' },
-      modulationEnvelope: { attack: 0.004, decay: 0.3, sustain: 0, release: 0.4 },
+      modulationEnvelope: { attack: 0.004, decay: 0.35, sustain: 0.15, release: 0.6 },
       filter: { type: 'lowpass', frequency: 5200, Q: 0.5 },
-      volume: -10,
+      volume: -2,
     },
     shimmer: { chance: 0.45, delay: 0.11, level: 0.32 },
     pad: {
@@ -121,9 +123,9 @@ export const MOODS = {
       volume: -23,
     },
     texture: {
-      noise: 'white',
-      filter: { type: 'bandpass', frequency: 1600, Q: 3 },
-      sweep: { min: 800, max: 4200, rate: 0.11 },
+      noise: 'pink',
+      filter: { type: 'bandpass', frequency: 1400, Q: 1.6 },
+      sweep: { min: 700, max: 3400, rate: 0.11 },
       volume: -33,
     },
     breath: {
@@ -172,7 +174,7 @@ export const MOODS = {
       envelope: { attack: 0.02, decay: 1, sustain: 0.05, release: 2.4 },
       filter: { type: 'lowpass', frequency: 1300, Q: 1.1 },
       detune: -5,
-      volume: -10,
+      volume: -9,
     },
     shimmer: { chance: 0.35, delay: 0.16, level: 0.3 },
     pad: {
@@ -195,7 +197,7 @@ export const MOODS = {
       // others. An octave down sits under the music instead of on top of it.
       semitones: -12,
       sweep: { min: 140, max: 520, rate: 0.028 },
-      volume: -39,
+      volume: -35,
     },
     ripple: { delayTime: 0.44, feedback: 0.46, send: 0.52 },
     reverb: { decay: 12, wet: 0.46 },

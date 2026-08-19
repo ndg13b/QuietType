@@ -339,10 +339,17 @@ export class AudioEngine {
     const { Tone, gain } = this.#nodes;
 
     const { type: pluckType, filter: pluckFilter, ...pluckOptions } = mood.pluck;
-    // The object form is the one that actually accepts maxPolyphony; passing it
-    // alongside the voice options lands it in the voice defaults instead.
+    // No FM here on purpose. Frequency-modulating an oscillator at audio rate
+    // defeats Web Audio's bandlimiting, so an FM voice aliases -- measured at
+    // +8 dB of folded-back junk across a whole pluck range, heard as an
+    // intermittent gritty edge on high notes. AM multiplies two bandlimited
+    // signals instead, which stays bandlimited, and a non-integer harmonicity
+    // gives the inharmonic partials that make a bell sound like a bell.
+    const VOICES = { am: Tone.AMSynth, synth: Tone.Synth };
     const pluck = new Tone.PolySynth({
-      voice: pluckType === 'fm' ? Tone.FMSynth : Tone.Synth,
+      voice: VOICES[pluckType] ?? Tone.Synth,
+      // The object form is the one that actually accepts maxPolyphony; passing
+      // it alongside the voice options lands it in the voice defaults instead.
       maxPolyphony: MAX_VOICES,
       options: pluckOptions,
     });

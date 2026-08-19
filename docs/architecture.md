@@ -57,10 +57,17 @@ The obvious alternatives both fail on real typing:
 Comparing each gap to the one before it catches the lurch and shrugs off the
 lone outlier. `tests/math.test.js` pins both behaviours down.
 
-Gaps longer than `PAUSE_MS` are excluded from the rhythm statistics entirely.
-They are pauses, and the state machine already handles pauses; feeding them to
-the statistics would make every return from a pause read as erratic for the
-next two dozen keystrokes.
+`PAUSE_MS` (has the writer stopped?) and `RHYTHM_GAP_MS` (is this gap part of a
+pulse?) are separate constants that used to share one value. They answer
+different questions, and tying them together means raising the pause threshold
+silently lets multi-second gaps into the statistics and wrecks every steadiness
+reading. Gaps beyond `RHYTHM_GAP_MS` are excluded from the statistics entirely:
+feeding them in would make every return from a hesitation read as erratic for
+the next two dozen keystrokes.
+
+`PAUSE_MS` is deliberately generous. Reaching for a comma or thinking
+mid-sentence is still writing, and having the music change character every time
+the writer draws breath is worse than having it wait.
 
 The `erratic` state uses separate enter and exit thresholds. With a single
 threshold the texture layer flickers on and off around the boundary, which is
@@ -126,6 +133,39 @@ Three things that used to make fast typing sound like it was breaking up:
    with a 10 ms release; on bass-heavy material that is heard as gritty
    pumping. A gentle glue compressor now takes the peaks off, and the limiter
    sits at -1 dBFS as a safety catch that should never engage.
+
+## No FM synthesis
+
+Bright's plucks were an `FMSynth`, and it aliased. Frequency-modulating an
+oscillator at audio rate defeats Web Audio's bandlimiting: the oscillator's
+harmonic content is computed for its nominal frequency, not for a frequency
+being swept thousands of times a second. Carson's rule puts the sidebands of
+Bright's top notes at 37 kHz against a 22.05 kHz Nyquist, and everything above
+Nyquist folds back as inharmonic junk.
+
+It is measurable. Render the same note twice, once at 44.1 kHz and once at
+176.4 kHz, and compare the spectra below 20 kHz: nothing can alias at 4x
+oversampling, so any excess in the 44.1 kHz render folded down. FM measured
++8 dB of excess across a whole pluck range. Detuning it did not help -- the
+problem is audio-rate FM itself, not the settings.
+
+`AMSynth` measures perfectly clean, because multiplying two bandlimited signals
+stays bandlimited. It is also the better voice for the job: a non-integer
+harmonicity gives inharmonic partials, which is exactly what makes a real bell
+sound like a bell.
+
+Two traps in measuring this, both of which produced confident nonsense before
+being caught: the two renders must analyse the same *duration* (a fixed sample
+count covers different amounts of a decaying note at different rates), and the
+FFT must be normalised by window length (an unnormalised one scales with N, and
+the two rates need different N). Both showed up as a suspiciously uniform dB
+offset across every band. A correct comparison reads 0.0 dB in the fundamental
+band; anything else means the method is still wrong.
+
+The same test flags Tone's `fat*` oscillators at ~3 dB, which is not aliasing --
+a plain sawtooth measures 0.0 dB, and the reading only appears with detuning,
+whose oscillators start in different phase relationships at different sample
+rates. Web Audio's sawtooth is bandlimited.
 
 ## Where "long and ethereal" comes from
 
